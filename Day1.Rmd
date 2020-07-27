@@ -289,6 +289,15 @@ priorplt(probdat)
   - Searchers parameter space for stable distribution
   - Updates parameter values using conditional probability 
   - Automatic generation of MCMC algorithm by software
+  
+## MCMC sampling
+<img src="./img/MCMC1.jpeg"  width="750"/>
+  
+## Stable distribution
+<img src="./img/MCMC2.jpeg"  width="750"/>
+
+## Unconverged model
+<img src="./img/UNC.jpeg"  width="750"/>
 
 ## Bayesian software
 - BUGS (Bayesian inference Using Gibbs Sampling)
