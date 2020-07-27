@@ -1,0 +1,459 @@
+---
+title: "Intro to Bayesian software"
+output: 
+  ioslides_presentation:
+    incremental: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(jagsUI)
+```
+
+## Goals
+- Introduce you to Bayesian inference
+
+- Learn syntax for Bayesian software (JAGS)
+
+- Run model and assess output
+
+- Increase awareness of other software (Nimble, Stan)
+
+## Outline (Today)
+- Probability review
+  - random variables, distributions, models, inference
+
+- Bayesian theory
+  - Bayes theorem, priors, MCMC
+  
+- Software: JAGS
+  - model syntax, data and initial values, MCMC settings, running the model
+  
+## Outline (Tomorrow)
+- Model output
+  - structure
+  - convergence
+  - summarizing
+  - inference & visuals
+  
+- Other software
+  - Rstan, Nimble
+
+## Probability
+- Random variable: process of assigning numerical values to the outcome of random events
+  - Notation: $X$
+  
+- Random variate: specific numerical outcome (data!)
+  - Notation: $x$
+  
+
+## Probability
+- Probability distribution: common description of possible outcomes of a random variable
+  - $P(X = x)$ when $x_1 = 4, x_2 = 2, ..., x_n$
+
+- Density/mass function: function containing input parameters and outputs probability
+  - Notation: $f_X(x|\boldsymbol{\theta})$ OR $x_i \sim f(\theta)$
+  - PDF for Normal distribution: $$f_X(x|\mu,\sigma)=\frac{1}{\sqrt{2\pi\sigma^2}}e^{-\frac{(x-\mu)^2}{2\sigma^2}}$$
+$$ x \sim Norm(\mu, \sigma)$$
+
+## Probability example
+Calculate probability that a random variable is equal to certain outcomes (random variate)
+```{r, echo=TRUE}
+mean <- 5; sd <- 2; outcome <- c(-0.7, 1.1, 2.3, 5.5)
+```
+
+$$f_X(x = -0.7|\mu = 5,\sigma = 2)=\frac{1}{\sqrt{2\pi2^2}}e^{-\frac{(-0.7-5)^2}{2\times2^2}}$$
+
+```{r, echo=TRUE}
+(1/sqrt(2*pi*sd^2))*exp(-((outcome - mean)^2/(2*sd^2)))
+dnorm(outcome, mean, sd)
+```
+
+## Probability example
+```{r, warning=FALSE}
+ggplot() + 
+  stat_function(aes(x = c(-1,11.5)), fun = dnorm, n = 1000, args = list(mean = 5, sd= 2)) +
+  labs(y = "probability density", x = "theta")
+```
+
+## Probability example
+```{r, warning=FALSE}
+ggplot() + 
+  stat_function(aes(x = c(-1,11.5)), fun = dnorm, n = 1000, args = list(mean = 5, sd= 2)) +
+  geom_point(aes(x = outcome, y = dnorm(outcome, mean, sd)), col = "red") +
+  labs(y = "probability density", x = "theta")
+```
+
+## Linear models
+- Parameters within distributions are described with linear equation and link functions
+  - $f_X(x|\theta)$ OR $x \sim f(\theta)$
+  - $g(\theta)=\alpha + \beta\times COVARIATE$
+  - t-test, anova, regression, ancova
+- General linear models (normal distribution)
+- Generalized linear models (other distributions)
+- Model structure is separate from inference
+- Bayesian statistics is about inference
+
+## Inference
+What to do when parameters are unknown?
+
+- Frequentist (eg, Maximum likelihood estimation [MLE])
+- Bayesian
+
+## Frequentist
+- Probability statement is made about the data
+    - $P(X = x|\boldsymbol{\theta})$
+- Parameter values are fixed
+
+- Data are independent random variates (ie, joint probability)
+  - $f_X(\boldsymbol{x}|\mu,\sigma)=f_X(x_1|\mu,\sigma)\times f_X(x_2|\mu,\sigma)\times ... f_X(x_n|\mu,\sigma)$
+  
+- Joint probability = likelihood
+  - Likelihood of being true fixed parameter values given our observed data
+  - $f_X(\boldsymbol{x}|\mu,\sigma) = L(\mu,\sigma|\boldsymbol{x})$
+
+## Frequentist
+- Estimate unknown parameters by minimizing negative log-likelihood
+
+$$\tiny L(\boldsymbol{\theta}|\boldsymbol{x})=\prod_{i=1}^{i=n}{f_X(\boldsymbol{x}|\boldsymbol{\theta})}$$
+$$\tiny l(\boldsymbol{\theta}|\boldsymbol{x})=log(\prod_{i=1}^{i=n}{f_X(x_i|\boldsymbol{\theta})})$$
+$$\tiny =log(f_X(x_1|\boldsymbol{\theta})\times f_X(x_2|\boldsymbol{\theta})\times ... f_X(x_n|\boldsymbol{\theta}))$$
+$$\tiny =log(f_X(x_1|\boldsymbol{\theta}))+log(f_X(x_2|\boldsymbol{\theta}))+ ... log(f_X(x_n|\boldsymbol{\theta}))$$
+$$\tiny \sum_{i=1}^{i=n}{log(f_X(x_i|\boldsymbol{\theta}))}$$
+$$\tiny nll=-\sum_{i=1}^{i=n}{log(f_X(x_i|\boldsymbol{\theta}))}$$
+
+## Frequentist
+```{r, echo=TRUE}
+outcome <- c(outcome, rnorm(100, mean, sd))
+
+nll <- function(x) {
+  return()
+}
+optim(par = c(0, 1), fn = nll)$par
+```
+
+`lm(outcome~1)`
+```{r, echo=TRUE}
+c(coef(lm(outcome~1)), sigma(lm(outcome~1))) #Least squares using QR decomposition
+```
+
+## Bayesian
+- Probability statement is about parameters not data
+  - $P(\boldsymbol{\theta}|X = x)$
+- Data is fixed
+- Estimating a posterior distribution
+  - $P(\boldsymbol{\theta}|\boldsymbol{x})$
+- Conditional probability
+
+## Bayes theorem
+$$P(\boldsymbol{\theta}|\boldsymbol{x}) = \frac{P(\boldsymbol{x}|\boldsymbol{\theta})P(\boldsymbol{\theta})}{P(\boldsymbol{x})}$$
+$P(\boldsymbol{\theta}|\boldsymbol{x})$: Posterior distribution  
+$P(\boldsymbol{x}|\boldsymbol{\theta})$: Likelihood  
+$P(\boldsymbol{\theta})$: Prior distribution  
+$P(\boldsymbol{x})$: Probability of the data  
+
+## Likelihood $P(\boldsymbol{x}\vert\boldsymbol{\theta})$
+We've already seen this!
+
+- Probability density or mass function
+
+## Prior distribution $P(\boldsymbol{\theta})$
+- A distribution that captures prior information about parameter
+- Allows formal incorporation of external knowledge
+  - Don't feign stupidity
+  - Increased precision
+  - Parameter identifiability
+- Can be seen as subjective
+- Uninformative priors
+
+## Prior example: informative
+```{r}
+priorplt <- function(data){
+  ggplot(data = data, aes(x = Theta, y = Density, col = Component), xlim = c(0,1)) +
+    geom_line(aes(size = Component), alpha=0.25) +
+    scale_size_manual(values=c(2,1,2)) +
+    theme_minimal() +
+    theme(axis.text.y=element_blank())
+}
+
+set.seed(1234)
+nGoal = 12       # number of scores
+nMiss = 8           # number not
+theta = seq(from=.00001, to = .9999, length=5000)
+
+#Beta 10, 10
+pTheta = dbeta(theta, 10, 10)
+pTheta = pTheta/sum(pTheta)
+pDataGivenTheta =  theta^nGoal * (1-theta)^nMiss
+pDataGivenTheta = pDataGivenTheta/sum(pDataGivenTheta)
+pData = sum(pDataGivenTheta*pTheta)
+pThetaGivenData = pDataGivenTheta*pTheta  / pData
+probdat = data.frame(prior=pTheta, likelihood=pDataGivenTheta, posterior=pThetaGivenData)
+probdat <- data.frame(
+  Density = c(pTheta, pDataGivenTheta, pThetaGivenData),
+  Theta = rep(theta, 3),
+  Component = rep(c("prior", "likelihood", "posterior"), each = 5000)
+)
+priorplt(probdat)
+```
+
+## Prior example: informative
+```{r}
+#Beta 2, 10
+pTheta = dbeta(theta, 2, 10)
+pTheta = pTheta/sum(pTheta) # Normalize so sum to 1
+pDataGivenTheta =  theta^nGoal * (1-theta)^nMiss
+pDataGivenTheta = pDataGivenTheta/sum(pDataGivenTheta)
+pData = sum(pDataGivenTheta*pTheta)
+pThetaGivenData = pDataGivenTheta*pTheta  / pData
+probdat = data.frame(prior=pTheta, likelihood=pDataGivenTheta, posterior=pThetaGivenData)
+probdat <- data.frame(
+  Density = c(pTheta, pDataGivenTheta, pThetaGivenData),
+  Theta = rep(theta, 3),
+  Component = rep(c("prior", "likelihood", "posterior"), each = 5000)
+)
+priorplt(probdat)
+```
+
+## Prior example: more data
+```{r}
+#More data
+nGoal = 60       # number of scores
+nMiss = 40           # number not
+pTheta = dbeta(theta, 10, 10)
+pTheta = pTheta/sum(pTheta) # Normalize so sum to 1
+pDataGivenTheta =  theta^nGoal * (1-theta)^nMiss
+pDataGivenTheta = pDataGivenTheta/sum(pDataGivenTheta)
+pData = sum(pDataGivenTheta*pTheta)
+pThetaGivenData = pDataGivenTheta*pTheta  / pData
+probdat = data.frame(prior=pTheta, likelihood=pDataGivenTheta, posterior=pThetaGivenData)
+probdat <- data.frame(
+  Density = c(pTheta, pDataGivenTheta, pThetaGivenData),
+  Theta = rep(theta, 3),
+  Component = rep(c("prior", "likelihood", "posterior"), each = 5000)
+)
+priorplt(probdat)
+```
+
+## Prior example: more data
+```{r}
+#More data with conflicting prior
+nGoal = 60       # number of scores
+nMiss = 40           # number not
+pTheta = dbeta(theta, 2, 10)
+pTheta = pTheta/sum(pTheta) # Normalize so sum to 1
+pDataGivenTheta =  theta^nGoal * (1-theta)^nMiss
+pDataGivenTheta = pDataGivenTheta/sum(pDataGivenTheta)
+pData = sum(pDataGivenTheta*pTheta)
+pThetaGivenData = pDataGivenTheta*pTheta  / pData
+probdat = data.frame(prior=pTheta, likelihood=pDataGivenTheta, posterior=pThetaGivenData)
+probdat <- data.frame(
+  Density = c(pTheta, pDataGivenTheta, pThetaGivenData),
+  Theta = rep(theta, 3),
+  Component = rep(c("prior", "likelihood", "posterior"), each = 5000)
+)
+priorplt(probdat)
+```
+
+## Prior example: uninformative
+```{r}
+#More data with conflicting prior
+nGoal = 6
+nMiss = 4
+pTheta = dbeta(theta, 1, 1)
+pTheta = pTheta/sum(pTheta)
+pDataGivenTheta =  theta^nGoal * (1-theta)^nMiss
+pDataGivenTheta = pDataGivenTheta/sum(pDataGivenTheta)
+pData = sum(pDataGivenTheta*pTheta)
+pThetaGivenData = pDataGivenTheta*pTheta  / pData
+probdat = data.frame(prior=pTheta, likelihood=pDataGivenTheta, posterior=pThetaGivenData)
+probdat <- data.frame(
+  Density = c(pTheta, pDataGivenTheta, pThetaGivenData),
+  Theta = rep(theta, 3),
+  Component = rep(c("prior", "likelihood", "posterior"), each = 5000)
+)
+priorplt(probdat)
+```
+
+## Probability of the data $P(\boldsymbol{x})$
+- Normalizing constant (integral equal to 1)
+- Intractable integral ($P(\boldsymbol{x}) = \int{P(\boldsymbol{x}|\boldsymbol{\theta})P(\boldsymbol{\theta})d\boldsymbol{\theta}}$)
+- Difficult to find analytical solution (conjugate priors)
+
+## MCMC sampling
+- Markov chain Monte Carlo (MCMC)
+- Stochastic simulation to draw dependent samples from the posterior distribution
+- Approximate posterior (large enough samples/iterations)
+- MCMC algorithm
+  - Searchers parameter space for stable distribution
+  - Updates parameter values using conditional probability 
+  - Automatic generation of MCMC algorithm by software
+
+## Bayesian software
+- BUGS (Bayesian inference Using Gibbs Sampling)
+
+- JAGS (Just Another Gibbs Sampler)
+
+- Stan
+  - rstanarm package
+  - brms package
+
+- Nimble
+
+## JAGS
+- JAGS (https://sourceforge.net/projects/mcmc-jags/files/latest/download)
+- package: jagsUI
+- Uses BUGS language
+- A series of nodes, relationships, indices, and loops
+- Language is declarative (order doesn't matter)
+
+## Steps
+1) Question, study design (model structure), data collection, data cleaning
+2) Code JAGS model
+  - Define likelihood based on model structure
+  - Choose priors
+3) Define initial values
+4) Choose MCMC settings
+5) Run model
+6) Come back tomorrow
+
+## Example
+<img src="./img/CHcar.jpg"  width="750"/>
+
+```{r, warning=FALSE, message=FALSE}
+head(mtcars)
+```
+
+## Example
+<img src="./img/CHcar2.jpg"  width="750"/>
+
+```{r, warning=FALSE, message=FALSE}
+mtcars %>% group_by(cyl) %>% summarize(mean(mpg))
+```
+
+## Model structure (Likelihood)
+$$y_i \sim Normal(\mu_i, \sigma)$$  
+- $y_i$: mpg for each make & model  
+- $\mu_i$: expected mpg  
+- $\sigma$: standard deviation 
+
+## Model structure (Likelihood)
+$$\mu_i = \alpha_0 + \alpha_1 \times x_{1,i} + \alpha_2 \times x_{2,i}$$  
+
+- $\alpha_0$: intercept (mean mpg of 4 cyl)  
+- $\alpha_1$: effect of 6 cyl (difference in mpg between 4 and 6 cyl)  
+- $\alpha_2$: effect of 8 cyl (difference in mpg between 4 and 8 cyl)  
+- $x_{1,i}$: dummy vector for 6 cyl (1 for 6 cyl, 0 otherwise)  
+- $x_{2,i}$: dummy vector for 8 cyl (1 for 8 cyl, 0 otherwise)  
+
+## Model structure (Likelihood)
+
+
+$$L(\alpha_0,\alpha_1,\alpha_2,\sigma|y_i,x_{1,i},x_{2,i})=\prod_{i=1}^{i=n}{\frac{1}{\sqrt{2\pi\sigma^2}}e^{-\frac{(y_i- (\alpha_0 + \alpha_1 \times x_{1,i} + \alpha_2 \times x_{2,i}))^2}{2\sigma^2}}}$$
+
+## LM code
+```{r, echo=TRUE}
+lm(mpg~as.factor(cyl), data = mtcars)
+confint(lm(mpg~as.factor(cyl), data = mtcars))
+```
+
+## Prior selection
+- $\sigma$: inverse gamma on variance, $\sigma^2$ (conjugate prior)
+- $\tau$: precision parameter (inverse of variance)
+- $\alpha_k$: uniformed normal
+
+## Model code
+- text file
+  - load or sink within script
+- 2 components
+  - Likelihood
+  - Prior
+  
+```
+model{
+##Likelihood
+for(i in 1:nobs){
+  #likelihood here
+}
+##Priors
+#priors here
+}
+```
+## Model code
+```{r, echo=TRUE}
+cat("
+  model{
+
+  }
+  ", fill=TRUE, file="Model.txt")
+```
+
+## Compile data
+- Data should be in a list
+- Names of each list item should match the node name in the model
+
+```{r, echo=TRUE}
+data <- list(y = mtcars$mpg, 
+             x1 = ifelse(mtcars$cyl==6,1,0), 
+             x2 = ifelse(mtcars$cyl==8,1,0),
+             nobs = dim(mtcars)[1])
+```
+
+## Initial values
+- Starting values for each MCMC chain
+- If none are supplied model selects values within prior
+- Often the culprit for errors
+- Provided values should be realistic and mathematically feasible
+- Initial values should be a function that returns a list of values
+
+```{r, echo=TRUE}
+inits <- function(){list(
+  alpha0 = runif(1, 10, 33),
+  alpha1 = runif(1, -1, 1),
+  alpha2 = runif(1, -1, 1),
+  tau = runif(1, 0, 1)
+)}
+```
+
+## Parameters to save
+- Parameters we are interested in monitor
+- Parameters we need to check for convergence
+- Be mindful of memory issues
+- Supplied as vector of character values
+
+```{r, echo=TRUE}
+params <- c("alpha0", "alpha1", "alpha2", "tau", "mean2", "mean3")
+```
+
+## MCMC settings
+- Arguments include
+  - Number of MCMC chains to run
+  - Number of iterations per chain
+  - Length of burn-in (ie, iterations not within stable distribution)
+  - Number of iterations to thin (ie, memory issues)
+  - Length of adaption (ie, period to determine MCMC step size)
+- Tweak to improve computational speed and cost (ie, time and memory)
+
+```{r, echo=TRUE}
+nc <- #number of chains
+ni <- #number of iterations
+nb <- #length of burn-in
+nt <- #number to thin by
+na <- #length of adaption phase
+```
+
+## Run model
+```{r, echo=FALSE}
+out <- jags(data = data, model.file = "Model.txt",
+              inits = inits, parameters.to.save = params,
+              n.chains = nc, n.iter = ni, n.burnin = nb,
+              n.thin = nt, n.adapt = na,
+              parallel = FALSE, store.data = FALSE,
+              codaOnly = FALSE)
+```
+
+## Output
+```{r}
+out
+```
