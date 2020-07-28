@@ -1,0 +1,462 @@
+---
+title: "Intro to Bayesian software"
+output: 
+  ioslides_presentation:
+    incremental: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(jagsUI)
+
+cat("
+  model{
+  
+  ##Likelihood
+  for(i in 1:nobs){
+    y[i] ~ dnorm(mu[i], tau) #likelihood function
+    mu[i] <- alpha0 + alpha1 * x1[i] + alpha2 * x2[i] #linear model of the mean
+  }
+  
+  ##Priors
+  alpha0 ~ dnorm(0, 0.001) #mean of 4 cyl
+  alpha1 ~ dnorm(0, 0.001) #effect of 6 cyl
+  alpha2 ~ dnorm(0, 0.001) #effect of 8 cyl
+  tau ~ dgamma(0.001, 0.001) #precision
+  
+  ##Derived values
+  sigma <- 1/sqrt(tau) #relationship between SD and precision
+  mean2 <- alpha0 + alpha1 #mean of 6 cyl
+  mean3 <- alpha0 + alpha2 #mean of 8 cyl
+  
+  }
+  ", fill=TRUE, file="Model.txt")
+
+data <- list(y = mtcars$mpg, 
+             x1 = ifelse(mtcars$cyl==6,1,0), 
+             x2 = ifelse(mtcars$cyl==8,1,0),
+             nobs = dim(mtcars)[1])
+
+inits <- function(){list(
+  alpha0 = runif(1, 10, 33),
+  alpha1 = runif(1, -1, 1),
+  alpha2 = runif(1, -1, 1),
+  tau = runif(1, 0, 1)
+)}
+
+params <- c("alpha0", "alpha1", "alpha2", "tau", "sigma", "mean2", "mean3")
+
+nc <- 3
+ni <- 1100
+nb <- 100
+nt <- 1
+na <- 100
+
+out <- jags(data = data, model.file = "Model.txt",
+              inits = inits, parameters.to.save = params,
+              n.chains = nc, n.iter = ni, n.burnin = nb,
+              n.thin = nt, n.adapt = na)
+```
+
+## Outline
+- Model output
+  - structure, convergence, summarizing, inference & visuals
+  
+- Other software
+  - Rstan, Nimble
+
+## Model structure (Likelihood)
+$$y_i \sim Normal(\mu_i, \sigma)$$  
+- $y_i$: mpg for each make & model  
+- $\mu_i$: expected mpg  
+- $\sigma$: standard deviation 
+
+## Model structure (Likelihood)
+$$\mu_i = \alpha_0 + \alpha_1 \times x_{1,i} + \alpha_2 \times x_{2,i}$$  
+
+- $\alpha_0$: intercept (mean mpg of 4 cyl)  
+- $\alpha_1$: effect of 6 cyl (difference in mpg between 4 and 6 cyl)  
+- $\alpha_2$: effect of 8 cyl (difference in mpg between 4 and 8 cyl)  
+- $x_{1,i}$: dummy vector for 6 cyl (1 for 6 cyl, 0 otherwise)  
+- $x_{2,i}$: dummy vector for 8 cyl (1 for 8 cyl, 0 otherwise)  
+
+## Output summary
+```{r, echo=TRUE}
+summary(out)
+```
+
+## Output
+```{r, echo=TRUE}
+out
+```
+
+## Output object
+```{r, echo=TRUE}
+ls(out)
+```
+
+## Convergence
+- MCMC searches parameter space  
+- Must verify that we are within the stable distribution
+  - Check our burn-in: is it long enough?
+  - Multiple chains: are they mixing well?
+  - Diagnostics
+    - Visual: traceplot: looks at mixing
+<img src="./img/MCMC2.jpeg"  width="750"/>
+
+## More diagnostics 
+- Numeric: Gelman-Rubin (Rhat):  
+  - derived test statistic (between vs within chain variance)  
+  - values < 1.1 are considered converged  
+- Effective sample size (independent draws of posterior)  
+  - the higher the better  
+
+## Traceplot
+```{r, echo=TRUE}
+traceplot(out, "alpha0")
+```
+
+## Traceplot
+```{r, echo=TRUE}
+traceplot(out, "alpha1")
+```
+
+## Traceplot
+```{r, echo=TRUE}
+traceplot(out, "alpha2")
+```
+
+## Traceplot
+```{r, echo=TRUE}
+traceplot(out, "tau")
+```
+
+## Rhat
+```{r, echo=TRUE}
+t(out$Rhat); all(out$Rhat < 1.1)
+```
+
+## Effective sample size
+```{r, echo=TRUE}
+t(out$n.eff)
+```
+
+## Improve convergence
+- Model structure
+- Alternative priors
+- Initial values
+- MCMC settings
+- Alternative MCMC algorithms (eg, Stan, Nimble)
+
+## Model fit
+- Posterior predictive check
+- Bayesian p-value
+
+```
+for(i in 1:nobs){
+  res[i] <- y[i] - mu[i]
+  y.new[i] ~ dnorm(mu[i], tau)
+  res.new[i] <- y.new[i] - mu[i]
+}
+
+fit <- sum(res[])
+fit.new <- sum(res.new[])
+```
+
+```{r, include=FALSE}
+cat("
+  model{
+  
+  ##Likelihood
+  for(i in 1:nobs){
+    y[i] ~ dnorm(mu[i], tau) #likelihood function
+    mu[i] <- alpha0 + alpha1 * x1[i] + alpha2 * x2[i] #linear model of the mean
+    
+    res[i] <- y[i] - mu[i]
+    y.new[i] ~ dnorm(mu[i], tau)
+    res.new[i] <- y.new[i] - mu[i]
+  }
+  
+  ##Priors
+  alpha0 ~ dnorm(0, 0.001) #mean of 4 cyl
+  alpha1 ~ dnorm(0, 0.001) #effect of 6 cyl
+  alpha2 ~ dnorm(0, 0.001) #effect of 8 cyl
+  tau ~ dgamma(0.001, 0.001) #precision
+  
+  ##Derived values
+  sigma <- 1/sqrt(tau) #relationship between SD and precision
+  mean2 <- alpha0 + alpha1 #mean of 6 cyl
+  mean3 <- alpha0 + alpha2 #mean of 8 cyl
+  fit <- sum(res[])
+  fit.new <- sum(res.new[])
+  }
+  ", fill=TRUE, file="Model.txt")
+
+params <- c("fit", "fit.new")
+
+out.check <- jags(data = data, model.file = "Model.txt",
+              inits = inits, parameters.to.save = params,
+              n.chains = nc, n.iter = ni, n.burnin = nb,
+              n.thin = nt, n.adapt = na)
+```
+
+## PP-check
+```{r, echo=TRUE}
+jagsUI::pp.check(out.check, 'fit', 'fit.new')
+```
+
+## Posterior estimations
+```{r, echo=TRUE}
+posterior <- data.frame(matrix(unlist(out$sims.list), ncol=length(out$sims.list), byrow=F))
+colnames(posterior) <- names(out$sims.list)
+dim(posterior)
+```
+
+## Posterior plots
+```{r, echo=TRUE}
+ggplot(posterior) + 
+  geom_density(aes(x=alpha0),) + theme_minimal()
+```
+
+## Summarize posterior
+- Calculate mean and sd
+- Credible intervals
+
+```{r, echo=TRUE}
+out$mean$alpha0; out$sd$alpha0; out$q2.5$alpha0; out$q97.5$alpha0
+```
+
+## Since we're Bayesian
+- Probability statements can be made directly about the posterior
+
+Ex/ probability that a 4 cyl vehicle has a fuel economy greater than 28 mpgs?
+```{r, echo=TRUE}
+
+```
+
+## What about test statistics
+- Check to see if 95% CI overlaps zero.
+  - Better yet... report the actual probability.
+
+Ex/ probability that 4 cyl have a higher mean mpg than 6 cyl?
+```{r, echo=TRUE}
+
+```
+
+## Visually see this...
+```{r, echo=TRUE}
+ggplot(posterior) + geom_density(aes(x=alpha1)) + 
+  geom_vline(aes(xintercept=0), linetype = "dashed") + theme_minimal()
+```
+
+## Another example
+
+Differences between 2 non-baseline groups
+
+```{r, echo=TRUE}
+
+```
+
+There is a `r `% chance that a v6 engine has a greater fuel economy than a v8.
+
+## Nimble
+```{r, echo=TRUE, message=FALSE}
+library(nimble)
+MSdyn.c <- nimbleCode({
+  
+  ##Likelihood
+  for(i in 1:nobs){
+    y[i] ~ dnorm(mu[i], tau) #likelihood function
+    mu[i] <- alpha0 + alpha1 * x1[i] + alpha2 * x2[i] #linear model of the mean
+    res[i] <- y[i] - mu[i] #residuals
+    y.new[i] ~ dnorm(mu[i], tau) #simulated data
+    res.new[i] <- y.new[i] - mu[i] #simulated residuals
+  }
+  ##Priors
+  alpha0 ~ dnorm(0, 0.001) #mean of 4 cyl
+  alpha1 ~ dnorm(0, 0.001) #effect of 6 cyl
+  alpha2 ~ dnorm(0, 0.001) #effect of 8 cyl
+  tau ~ dgamma(0.001, 0.001) #precision
+  ##Derived values
+  sigma <- 1/sqrt(tau) #relationship between SD and precision
+  mean2 <- alpha0 + alpha1 #mean of 6 cyl
+  mean3 <- alpha0 + alpha2 #mean of 8 cyl
+  fit <- sum(res[1:nobs]) 
+  fit.new <- sum(res.new[1:nobs])
+  })
+```
+
+## Nimble
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+data <- list(y = mtcars$mpg, 
+             x1 = ifelse(mtcars$cyl==6,1,0), 
+             x2 = ifelse(mtcars$cyl==8,1,0),
+             nobs = dim(mtcars)[1])
+
+inits <- function(){list(
+  alpha0 = runif(1, 10, 33),
+  alpha1 = runif(1, -1, 1),
+  alpha2 = runif(1, -1, 1),
+  tau = runif(1, 0, 1)
+)}
+
+params <- c("alpha0", "alpha1", "alpha2", "tau", "sigma", "mean2", "mean3")
+
+nc <- 3
+ni <- 1100
+nb <- 100
+nt <- 1
+```
+
+## Nimble
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+
+MSdyn.m <- nimbleModel(MSdyn.c, constants = data, inits = inits())
+
+MCMCconf <- configureMCMC(MSdyn.m, monitors = params)
+
+MCMC <- buildMCMC(MCMCconf)
+
+MSdyn.comp <- compileNimble(MSdyn.m, MCMC)
+```
+
+## Nimble
+```{r, echo=TRUE, eval=FALSE}
+MSdyn.o <- runMCMC(MSdyn.comp$MCMC, niter = ni, nburnin = nb, nchains = nc, thin = nt, 
+                   setSeed = c(1,2,3), samplesAsCodaMCMC = TRUE)
+```
+
+```{r, include=FALSE}
+MSdyn.o <- runMCMC(MSdyn.comp$MCMC, niter = ni, nburnin = nb, nchains = nc, thin = nt, 
+                   samplesAsCodaMCMC = TRUE)
+```
+
+## Nimble
+```{r, echo=TRUE}
+summary(MSdyn.o)
+```
+
+## Stan
+```{r, include=FALSE}
+library(rstan)
+options(mc.cores = parallel::detectCores()) #Run in parallel
+rstan_options(auto_write=TRUE) #Save compiled model
+cat("
+  data{
+    int<lower=0> nobs; //number of observations
+    int<lower=0> K; //number of parameters
+    vector[nobs] y; //observed mpg
+    matrix[nobs, K] x; //design matrix
+  }
+  
+  parameters{
+    vector[K] alpha; //parameters
+    real<lower=0> sigma; // standard deviation
+  }
+  
+  model{
+  
+    //Priors
+    //target += normal_lpdf(sigma|0,100); //optional
+    //target += normal_lpdf(alpha|0,100); //optional
+    
+    //Likelihood
+    y ~ normal(x * alpha, sigma); //likelihood
+    //target += normal_lpdf(y|x*alpha, sigma); //alternative
+  }
+  
+  generated quantities{
+    vector[K] meancyl;
+    meancyl[1] = alpha[1];
+    meancyl[2] = alpha[1] + alpha[2];
+    meancyl[3] = alpha[1] + alpha[3];
+  }
+  ", fill=TRUE, file="Model.stan")
+```
+
+## Compile data
+```{r, echo=TRUE}
+data <- list(y = mtcars$mpg,
+             x = model.matrix(mpg~as.factor(cyl), data = mtcars),
+             nobs = dim(mtcars)[1],
+             K = 3)
+```
+
+## MCMC settings
+```{r, echo=TRUE}
+nc <- 3 #number of chains
+ni <- 1100 #number of iterations
+nb <- 100 #length of burn-in
+nt <- 1 #number to thin by
+```
+
+## Initial values
+```{r, echo=TRUE}
+alpha.fun <- function(){
+  alpha <- NULL
+  alpha[1] <- runif(1, 10, 33)
+  alpha[2] <- runif(1, -1, 1)
+  alpha[3] <- runif(1, -1, 1)
+  return(alpha)
+}
+
+inits <- function(){list(alpha = alpha.fun(), sigma = runif(1, 0, 10))}
+```
+
+## Parameters to save
+```{r, echo=TRUE}
+params <- c("alpha", "sigma", "meancyl")
+```
+
+## Run model
+```{r, echo=TRUE}
+out.stan <- stan(file = "Model.stan", data = data, init = inits, pars = params,
+                 chains = nc, iter = ni, warmup = nb, thin = nt,
+                 open_progress = FALSE)
+```
+
+## Output
+```{r, echo=TRUE}
+out.stan
+```
+
+## Rstanarm
+```{r, echo=TRUE, eval=FALSE}
+library(rstanarm)
+out.stanarm <- stan_glm(mpg ~ as.factor(cyl), data = mtcars, family = gaussian(),
+                        prior = normal(0, 100), prior_intercept = normal(0, 100), #optional
+                        iter = 1100, chains = 3, warmup = 100)
+```
+
+```{r, include=FALSE}
+library(rstanarm)
+out.stanarm <- stan_glm(mpg ~ as.factor(cyl), data = mtcars, family = gaussian(),
+                        prior = normal(0, 100), prior_intercept = normal(0, 100), #optional
+                        iter = 1100, chains = 3, warmup = 100)
+```
+
+## Output
+```{r, echo=TRUE}
+summary(out.stanarm)
+```
+
+## Brms
+```{r, echo=TRUE, eval=FALSE}
+library(brms)
+out.brms <- brm(mpg ~ as.factor(cyl), data = mtcars, family = gaussian(),
+                prior = c(set_prior("normal(0,100)", class = "b")), #optional
+                iter = 1100, chains = 3, warmup = 100)
+```
+
+```{r, include=FALSE}
+library(brms)
+out.brms <- brm(mpg ~ as.factor(cyl), data = mtcars, family = gaussian(),
+                prior = c(set_prior("normal(0,100)", class = "b")), #optional
+                iter = 1100, chains = 3, warmup = 100)
+```
+
+## Output
+```{r, echo=TRUE}
+summary(out.brms)
+```
